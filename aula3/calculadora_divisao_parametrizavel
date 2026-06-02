@@ -1,5 +1,5 @@
 /*********
-  Calculadora parametrizável (2 a 32 bits) - ESP32
+  Calculadora com divisao parametrizável (2 a 32 bits) - ESP32
   Cálculo feito no microcontrolador em C/C++
   Medição simples do tempo de cada operação
 *********/
