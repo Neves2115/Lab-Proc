@@ -1,1 +1,307 @@
+/*********
+  Calculadora parametrizável (2 a 8 bits) - ESP32
+  Cálculo feito no microcontrolador em C/C++
+  Medição simples do tempo de cada operação
+*********/
 
+#include <WiFi.h>
+
+const char* ssid     = "Calculadora ESP32 Grupo G";
+const char* password = "123456789";
+
+WiFiServer server(80);
+String header;
+
+// Estado da aplicação
+String resultadoStr = "-";
+bool temOverflow = false;
+int resultadoInt = 0;
+unsigned long ultimoTempoUs = 0;
+
+// --------------------------------------------------
+// Utilidades
+// --------------------------------------------------
+int valorMinimoBits(int bits) {
+  return -(1 << (bits - 1));
+}
+
+int valorMaximoBits(int bits) {
+  return (1 << (bits - 1)) - 1;
+}
+
+String getQueryValue(const String& request, const String& key) {
+  int start = request.indexOf(key);
+  if (start < 0) return "";
+
+  start += key.length();
+  int endAmp = request.indexOf('&', start);
+  int endSpace = request.indexOf(' ', start);
+
+  int end = -1;
+  if (endAmp >= 0 && endSpace >= 0) end = min(endAmp, endSpace);
+  else if (endAmp >= 0) end = endAmp;
+  else if (endSpace >= 0) end = endSpace;
+  else end = request.length();
+
+  return request.substring(start, end);
+}
+
+void atualizarOperacao(int bits, const String& op, int v1, int v2) {
+  temOverflow = false;
+  resultadoStr = "-";
+  resultadoInt = 0;
+  ultimoTempoUs = 0;
+
+  int minVal = valorMinimoBits(bits);
+  int maxVal = valorMaximoBits(bits);
+  int resultadoTmp = 0;
+
+  if (op == "som") {
+    unsigned long inicio = micros();
+
+    if (v1 < minVal || v1 > maxVal || v2 < minVal || v2 > maxVal) {
+      temOverflow = true;
+    } else {
+      long long r = (long long)v1 + (long long)v2;
+      if (r < minVal || r > maxVal) {
+        temOverflow = true;
+      } else {
+        resultadoTmp = (int)r;
+        resultadoInt = resultadoTmp;
+        resultadoStr = String(resultadoInt);
+      }
+    }
+
+    ultimoTempoUs = micros() - inicio;
+  }
+  else if (op == "sub") {
+    unsigned long inicio = micros();
+
+    if (v1 < minVal || v1 > maxVal || v2 < minVal || v2 > maxVal) {
+      temOverflow = true;
+    } else {
+      long long r = (long long)v1 - (long long)v2;
+      if (r < minVal || r > maxVal) {
+        temOverflow = true;
+      } else {
+        resultadoTmp = (int)r;
+        resultadoInt = resultadoTmp;
+        resultadoStr = String(resultadoInt);
+      }
+    }
+
+    ultimoTempoUs = micros() - inicio;
+  }
+  else if (op == "mul") {
+    unsigned long inicio = micros();
+
+    if (v1 < minVal || v1 > maxVal || v2 < minVal || v2 > maxVal) {
+      temOverflow = true;
+    } else {
+      long long r = (long long)v1 * (long long)v2;
+      if (r < minVal || r > maxVal) {
+        temOverflow = true;
+      } else {
+        resultadoTmp = (int)r;
+        resultadoInt = resultadoTmp;
+        resultadoStr = String(resultadoInt);
+      }
+    }
+
+    ultimoTempoUs = micros() - inicio;
+  }
+  else if (op == "fat") {
+    unsigned long inicio = micros();
+
+    if (v1 < 0 || v1 > maxVal) {
+      temOverflow = true;
+    } else {
+      long long fat = 1;
+      for (int i = 2; i <= v1; i++) {
+        if (fat > (long long)maxVal / i) {
+          temOverflow = true;
+          break;
+        }
+        fat *= i;
+      }
+
+      if (!temOverflow) {
+        resultadoTmp = (int)fat;
+        resultadoInt = resultadoTmp;
+        resultadoStr = String(resultadoInt);
+      }
+    }
+
+    ultimoTempoUs = micros() - inicio;
+  }
+}
+
+void enviarPagina(WiFiClient& client, int bits) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println("Connection: close");
+  client.println();
+
+  client.println("<!DOCTYPE html><html>");
+  client.println("<head><meta name='viewport' content='width=device-width, initial-scale=1'>");
+  client.println("<meta charset='UTF-8'><title>Calculadora ESP32</title>");
+  client.println("<style>");
+  client.println("html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; }");
+  client.println(".box { margin: 20px; padding: 20px; border: 2px solid #4CAF50; display: inline-block; border-radius: 10px; font-size: 20px; }");
+  client.println("select, button { font-size: 18px; margin: 8px; padding: 8px; border-radius: 5px; }");
+  client.println("button { color: white; border: none; cursor: pointer; font-weight: bold; min-width: 120px; }");
+  client.println(".btn-soma { background-color: #4CAF50; }");
+  client.println(".btn-sub { background-color: #2196F3; }");
+  client.println(".btn-mul { background-color: #FF9800; }");
+  client.println(".btn-fat { background-color: #D85820; }");
+  client.println(".overflow-div { color: red; font-size: 28px; font-weight: bold; margin-top: 20px; }");
+  client.println(".info { margin-top: 12px; font-size: 18px; }");
+  client.println("</style></head>");
+
+  client.println("<body><h1>Calculadora parametrizavel (2 a 8 bits)</h1>");
+  client.println("<div class='box'>");
+
+  client.println("<div class='info'><b>Fatorial usa apenas o Operando 1.</b></div>");
+  client.println("<div class='info'>Faixa atual: " + String(valorMinimoBits(bits)) + " a " + String(valorMaximoBits(bits)) + " (" + String(bits) + " bits)</div>");
+
+  client.println("<br>");
+  client.println("<label>Bits: </label><select id='bits'></select> &nbsp;&nbsp;");
+  client.println("<label>Op 1: </label><select id='op1'></select> &nbsp;&nbsp;");
+  client.println("<label>Op 2: </label><select id='op2'></select><br><br>");
+
+  client.println("<button class='btn-soma' onclick=\"enviarDados('som')\">SOMA (+)</button>");
+  client.println("<button class='btn-sub' onclick=\"enviarDados('sub')\">SUB (-)</button>");
+  client.println("<button class='btn-mul' onclick=\"enviarDados('mul')\">MULT (*)</button>");
+  client.println("<button class='btn-fat' onclick=\"enviarDados('fat')\">FATORIAL (!)</button>");
+
+  if (temOverflow) {
+    client.println("<div class='overflow-div'>Overflow!</div>");
+  } else if (resultadoStr != "-") {
+    client.println("<div style='font-size: 26px; font-weight: bold; margin-top:25px;'>Resultado: " + resultadoStr + "</div>");
+  }
+
+  client.println("<div class='info'>Tempo da ultima operacao: " + String(ultimoTempoUs) + " us</div>");
+
+  client.println("</div>");
+
+  client.println("<script>");
+  client.println("const bitsSel = document.getElementById('bits');");
+  client.println("const s1 = document.getElementById('op1');");
+  client.println("const s2 = document.getElementById('op2');");
+
+  client.println("function minBits(b){ return -(1 << (b - 1)); }");
+  client.println("function maxBits(b){ return (1 << (b - 1)) - 1; }");
+
+  client.println("function preencherBits() {");
+  client.println("  bitsSel.innerHTML = '';");
+  client.println("  for (let b = 2; b <= 8; b++) {");
+  client.println("    bitsSel.options[bitsSel.options.length] = new Option(b + ' bits', b);");
+  client.println("  }");
+  client.println("}");
+
+  client.println("function preencherOperandos() {");
+  client.println("  const bits = parseInt(bitsSel.value);");
+  client.println("  const minV = minBits(bits);");
+  client.println("  const maxV = maxBits(bits);");
+  client.println("  s1.innerHTML = '';");
+  client.println("  s2.innerHTML = '';");
+  client.println("  for (let i = minV; i <= maxV; i++) {");
+  client.println("    s1.options[s1.options.length] = new Option(i, i);");
+  client.println("    s2.options[s2.options.length] = new Option(i, i);");
+  client.println("  }");
+  client.println("}");
+
+  client.println("preencherBits();");
+  client.println("const params = new URLSearchParams(window.location.search);");
+  client.println("if (params.has('bits')) bitsSel.value = params.get('bits');");
+  client.println("preencherOperandos();");
+  client.println("if (params.has('v1')) s1.value = params.get('v1');");
+  client.println("if (params.has('v2')) s2.value = params.get('v2');");
+
+  client.println("bitsSel.addEventListener('change', function(){");
+  client.println("  preencherOperandos();");
+  client.println("});");
+
+  client.println("function enviarDados(operacao) {");
+  client.println("  const bits = bitsSel.value;");
+  client.println("  const v1 = s1.value;");
+  client.println("  const v2 = s2.value;");
+  client.println("  if (operacao === 'fat') {");
+  client.println("    window.location.href = '/?bits=' + bits + '&v1=' + v1 + '&op=fat';");
+  client.println("  } else {");
+  client.println("    window.location.href = '/?bits=' + bits + '&v1=' + v1 + '&op=' + operacao + '&v2=' + v2;");
+  client.println("  }");
+  client.println("}");
+  client.println("</script>");
+
+  client.println("</body></html>");
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  WiFi.softAP(ssid, password);
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("Endereço IP do AP: ");
+  Serial.println(IP);
+
+  server.begin();
+}
+
+void loop() {
+  WiFiClient client = server.available();
+
+  if (client) {
+    Serial.println("Novo Cliente.");
+    String currentLine = "";
+    header = "";
+
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        header += c;
+
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+
+            int bits = getQueryValue(header, "bits=").toInt();
+            if (bits < 2 || bits > 8) bits = 4;
+
+            String op = getQueryValue(header, "op=");
+            int v1 = getQueryValue(header, "v1=").toInt();
+            int v2 = getQueryValue(header, "v2=").toInt();
+
+            if (header.indexOf("GET /?") >= 0) {
+              if (op == "som" || op == "sub" || op == "mul" || op == "fat") {
+                atualizarOperacao(bits, op, v1, v2);
+
+                Serial.print("Bits: ");
+                Serial.print(bits);
+                Serial.print(" | Op: ");
+                Serial.print(op);
+                Serial.print(" | v1: ");
+                Serial.print(v1);
+                Serial.print(" | v2: ");
+                Serial.print(v2);
+                Serial.print(" | Tempo: ");
+                Serial.print(ultimoTempoUs);
+                Serial.println(" us");
+              }
+            }
+
+            enviarPagina(client, bits);
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+      }
+    }
+
+    client.stop();
+    Serial.println("Cliente desconectado.");
+  }
+}
