@@ -1,4 +1,3 @@
-
 /*********
   Calculadora Complemento de 2 (4 bits) - LEDs Persistentes e Botões Diretos
   Operações implementadas no ESP32 em C/C++
@@ -80,7 +79,7 @@ void loop() {
             // ============================================
             // PROCESSAMENTO NO ESP32 (C/C++)
             // Aqui a operação é realmente executada.
-            // O JavaScript apenas envia op=som, op=sub ou op=mul.
+            // O JavaScript apenas envia op=som, op=sub, op=mul ou op=fat.
             // ============================================
             if (header.indexOf("GET /?") >= 0) {
               int p1 = header.indexOf("v1=");
@@ -88,10 +87,18 @@ void loop() {
               int p3 = header.indexOf("&v2=");
               int p4 = header.indexOf(" HTTP");
 
-              if (p1 >= 0 && p2 >= 0 && p3 >= 0 && p4 >= 0) {
+              if (p1 >= 0 && p2 >= 0 && p4 >= 0) {
                 int v1 = header.substring(p1 + 3, p2).toInt();
-                String op = header.substring(p2 + 4, p3);
-                int v2 = header.substring(p3 + 4, p4).toInt();
+
+                String op;
+                int v2 = 0;
+
+                if (p3 >= 0) {
+                  op = header.substring(p2 + 4, p3);
+                  v2 = header.substring(p3 + 4, p4).toInt();
+                } else {
+                  op = header.substring(p2 + 4, p4);
+                }
 
                 temOverflow = false;
 
@@ -114,9 +121,7 @@ void loop() {
                   }
                 }
                 else if (op == "mul") {
-                  // MULTIPLICAÇÃO IMPLEMENTADA NO ESP32 EM C/C++
                   int mult = v1 * v2;
-
                   if (mult > 7 || mult < -8) {
                     temOverflow = true;
                   } else {
@@ -125,18 +130,20 @@ void loop() {
                   }
                 }
                 else if (op == "fat") {
-                  // MULTIPLICAÇÃO IMPLEMENTADA NO ESP32 EM C/C++
-                  int fatorial = 1;
-                  while (v1 > 1) {
-                    fatorial *= v1;
-                    v1--;
-                  }
-
-                  if (fatorial > 7 || fatorial < -8) {
+                  if (v1 < 0) {
                     temOverflow = true;
                   } else {
-                    resultadoStr = String(fatorial);
-                    resultadoInt = fatorial;
+                    int fatorial = 1;
+                    for (int i = 2; i <= v1; i++) {
+                      fatorial *= i;
+                    }
+
+                    if (fatorial > 7 || fatorial < -8) {
+                      temOverflow = true;
+                    } else {
+                      resultadoStr = String(fatorial);
+                      resultadoInt = fatorial;
+                    }
                   }
                 }
 
@@ -191,8 +198,13 @@ void loop() {
             client.println("if(params.has('v2')) s2.value = params.get('v2');");
 
             client.println("function enviarDados(operacao) {");
-            client.println("  const v1 = s1.value; const v2 = s2.value;");
-            client.println("  window.location.href = '/?v1=' + v1 + '&op=' + operacao + '&v2=' + v2;");
+            client.println("  const v1 = s1.value;");
+            client.println("  const v2 = s2.value;");
+            client.println("  if (operacao == 'fat') {");
+            client.println("    window.location.href = '/?v1=' + v1 + '&op=fat';");
+            client.println("  } else {");
+            client.println("    window.location.href = '/?v1=' + v1 + '&op=' + operacao + '&v2=' + v2;");
+            client.println("  }");
             client.println("}");
             client.println("</script></body></html>");
 
