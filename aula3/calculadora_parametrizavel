@@ -1,10 +1,11 @@
 /*********
-  Calculadora parametrizável (2 a 8 bits) - ESP32
+  Calculadora parametrizável (2 a 32 bits) - ESP32
   Cálculo feito no microcontrolador em C/C++
   Medição simples do tempo de cada operação
 *********/
 
 #include <WiFi.h>
+#include <stdlib.h>
 
 const char* ssid     = "Calculadora ESP32 Grupo G";
 const char* password = "123456789";
@@ -15,18 +16,18 @@ String header;
 // Estado da aplicação
 String resultadoStr = "-";
 bool temOverflow = false;
-int resultadoInt = 0;
+long resultadoInt = 0;
 unsigned long ultimoTempoUs = 0;
 
 // --------------------------------------------------
 // Utilidades
 // --------------------------------------------------
-int valorMinimoBits(int bits) {
-  return -(1 << (bits - 1));
+long long valorMinimoBits(int bits) {
+  return -(1LL << (bits - 1));
 }
 
-int valorMaximoBits(int bits) {
-  return (1 << (bits - 1)) - 1;
+long long valorMaximoBits(int bits) {
+  return (1LL << (bits - 1)) - 1;
 }
 
 String getQueryValue(const String& request, const String& key) {
@@ -46,28 +47,33 @@ String getQueryValue(const String& request, const String& key) {
   return request.substring(start, end);
 }
 
-void atualizarOperacao(int bits, const String& op, int v1, int v2) {
+long parseLongQuery(const String& request, const String& key) {
+  String value = getQueryValue(request, key);
+  if (value.length() == 0) return 0;
+  return strtol(value.c_str(), nullptr, 10);
+}
+
+void atualizarOperacao(int bits, const String& op, long v1, long v2) {
   temOverflow = false;
   resultadoStr = "-";
   resultadoInt = 0;
   ultimoTempoUs = 0;
 
-  int minVal = valorMinimoBits(bits);
-  int maxVal = valorMaximoBits(bits);
-  int resultadoTmp = 0;
+  long long minVal = valorMinimoBits(bits);
+  long long maxVal = valorMaximoBits(bits);
 
   if (op == "som") {
     unsigned long inicio = micros();
 
-    if (v1 < minVal || v1 > maxVal || v2 < minVal || v2 > maxVal) {
+    if ((long long)v1 < minVal || (long long)v1 > maxVal ||
+        (long long)v2 < minVal || (long long)v2 > maxVal) {
       temOverflow = true;
     } else {
       long long r = (long long)v1 + (long long)v2;
       if (r < minVal || r > maxVal) {
         temOverflow = true;
       } else {
-        resultadoTmp = (int)r;
-        resultadoInt = resultadoTmp;
+        resultadoInt = (long)r;
         resultadoStr = String(resultadoInt);
       }
     }
@@ -77,15 +83,15 @@ void atualizarOperacao(int bits, const String& op, int v1, int v2) {
   else if (op == "sub") {
     unsigned long inicio = micros();
 
-    if (v1 < minVal || v1 > maxVal || v2 < minVal || v2 > maxVal) {
+    if ((long long)v1 < minVal || (long long)v1 > maxVal ||
+        (long long)v2 < minVal || (long long)v2 > maxVal) {
       temOverflow = true;
     } else {
       long long r = (long long)v1 - (long long)v2;
       if (r < minVal || r > maxVal) {
         temOverflow = true;
       } else {
-        resultadoTmp = (int)r;
-        resultadoInt = resultadoTmp;
+        resultadoInt = (long)r;
         resultadoStr = String(resultadoInt);
       }
     }
@@ -95,15 +101,15 @@ void atualizarOperacao(int bits, const String& op, int v1, int v2) {
   else if (op == "mul") {
     unsigned long inicio = micros();
 
-    if (v1 < minVal || v1 > maxVal || v2 < minVal || v2 > maxVal) {
+    if ((long long)v1 < minVal || (long long)v1 > maxVal ||
+        (long long)v2 < minVal || (long long)v2 > maxVal) {
       temOverflow = true;
     } else {
       long long r = (long long)v1 * (long long)v2;
       if (r < minVal || r > maxVal) {
         temOverflow = true;
       } else {
-        resultadoTmp = (int)r;
-        resultadoInt = resultadoTmp;
+        resultadoInt = (long)r;
         resultadoStr = String(resultadoInt);
       }
     }
@@ -113,12 +119,12 @@ void atualizarOperacao(int bits, const String& op, int v1, int v2) {
   else if (op == "fat") {
     unsigned long inicio = micros();
 
-    if (v1 < 0 || v1 > maxVal) {
+    if (v1 < 0 || (long long)v1 > maxVal) {
       temOverflow = true;
     } else {
       long long fat = 1;
-      for (int i = 2; i <= v1; i++) {
-        if (fat > (long long)maxVal / i) {
+      for (long i = 2; i <= v1; i++) {
+        if (fat > maxVal / i) {
           temOverflow = true;
           break;
         }
@@ -126,8 +132,7 @@ void atualizarOperacao(int bits, const String& op, int v1, int v2) {
       }
 
       if (!temOverflow) {
-        resultadoTmp = (int)fat;
-        resultadoInt = resultadoTmp;
+        resultadoInt = (long)fat;
         resultadoStr = String(resultadoInt);
       }
     }
@@ -148,7 +153,8 @@ void enviarPagina(WiFiClient& client, int bits) {
   client.println("<style>");
   client.println("html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; }");
   client.println(".box { margin: 20px; padding: 20px; border: 2px solid #4CAF50; display: inline-block; border-radius: 10px; font-size: 20px; }");
-  client.println("select, button { font-size: 18px; margin: 8px; padding: 8px; border-radius: 5px; }");
+  client.println("select, input, button { font-size: 18px; margin: 8px; padding: 8px; border-radius: 5px; }");
+  client.println("input { width: 180px; }");
   client.println("button { color: white; border: none; cursor: pointer; font-weight: bold; min-width: 120px; }");
   client.println(".btn-soma { background-color: #4CAF50; }");
   client.println(".btn-sub { background-color: #2196F3; }");
@@ -158,16 +164,16 @@ void enviarPagina(WiFiClient& client, int bits) {
   client.println(".info { margin-top: 12px; font-size: 18px; }");
   client.println("</style></head>");
 
-  client.println("<body><h1>Calculadora parametrizavel (2 a 8 bits)</h1>");
+  client.println("<body><h1>Calculadora parametrizavel (2 a 32 bits)</h1>");
   client.println("<div class='box'>");
 
   client.println("<div class='info'><b>Fatorial usa apenas o Operando 1.</b></div>");
-  client.println("<div class='info'>Faixa atual: " + String(valorMinimoBits(bits)) + " a " + String(valorMaximoBits(bits)) + " (" + String(bits) + " bits)</div>");
+  client.println("<div class='info'>Faixa atual: " + String((long)valorMinimoBits(bits)) + " a " + String((long)valorMaximoBits(bits)) + " (" + String(bits) + " bits)</div>");
 
   client.println("<br>");
   client.println("<label>Bits: </label><select id='bits'></select> &nbsp;&nbsp;");
-  client.println("<label>Op 1: </label><select id='op1'></select> &nbsp;&nbsp;");
-  client.println("<label>Op 2: </label><select id='op2'></select><br><br>");
+  client.println("<label>Op 1: </label><input type='number' id='op1' step='1'> &nbsp;&nbsp;");
+  client.println("<label>Op 2: </label><input type='number' id='op2' step='1'><br><br>");
 
   client.println("<button class='btn-soma' onclick=\"enviarDados('som')\">SOMA (+)</button>");
   client.println("<button class='btn-sub' onclick=\"enviarDados('sub')\">SUB (-)</button>");
@@ -189,37 +195,40 @@ void enviarPagina(WiFiClient& client, int bits) {
   client.println("const s1 = document.getElementById('op1');");
   client.println("const s2 = document.getElementById('op2');");
 
-  client.println("function minBits(b){ return -(1 << (b - 1)); }");
-  client.println("function maxBits(b){ return (1 << (b - 1)) - 1; }");
+  client.println("function minBits(b){ return -Math.pow(2, b - 1); }");
+  client.println("function maxBits(b){ return Math.pow(2, b - 1) - 1; }");
 
   client.println("function preencherBits() {");
   client.println("  bitsSel.innerHTML = '';");
-  client.println("  for (let b = 2; b <= 8; b++) {");
+  client.println("  for (let b = 2; b <= 32; b++) {");
   client.println("    bitsSel.options[bitsSel.options.length] = new Option(b + ' bits', b);");
   client.println("  }");
   client.println("}");
 
-  client.println("function preencherOperandos() {");
+  client.println("function ajustarOperandos() {");
   client.println("  const bits = parseInt(bitsSel.value);");
   client.println("  const minV = minBits(bits);");
   client.println("  const maxV = maxBits(bits);");
-  client.println("  s1.innerHTML = '';");
-  client.println("  s2.innerHTML = '';");
-  client.println("  for (let i = minV; i <= maxV; i++) {");
-  client.println("    s1.options[s1.options.length] = new Option(i, i);");
-  client.println("    s2.options[s2.options.length] = new Option(i, i);");
-  client.println("  }");
+  client.println("  s1.min = minV; s1.max = maxV; s1.step = '1';");
+  client.println("  s2.min = minV; s2.max = maxV; s2.step = '1';");
+  client.println("  if (s1.value === '') s1.value = 0;");
+  client.println("  if (s2.value === '') s2.value = 0;");
+  client.println("  if (Number(s1.value) < minV) s1.value = minV;");
+  client.println("  if (Number(s1.value) > maxV) s1.value = maxV;");
+  client.println("  if (Number(s2.value) < minV) s2.value = minV;");
+  client.println("  if (Number(s2.value) > maxV) s2.value = maxV;");
   client.println("}");
 
   client.println("preencherBits();");
   client.println("const params = new URLSearchParams(window.location.search);");
-  client.println("if (params.has('bits')) bitsSel.value = params.get('bits');");
-  client.println("preencherOperandos();");
+  client.println("bitsSel.value = params.has('bits') ? params.get('bits') : '4';");
+  client.println("ajustarOperandos();");
   client.println("if (params.has('v1')) s1.value = params.get('v1');");
   client.println("if (params.has('v2')) s2.value = params.get('v2');");
+  client.println("ajustarOperandos();");
 
   client.println("bitsSel.addEventListener('change', function(){");
-  client.println("  preencherOperandos();");
+  client.println("  ajustarOperandos();");
   client.println("});");
 
   client.println("function enviarDados(operacao) {");
@@ -264,12 +273,12 @@ void loop() {
         if (c == '\n') {
           if (currentLine.length() == 0) {
 
-            int bits = getQueryValue(header, "bits=").toInt();
-            if (bits < 2 || bits > 8) bits = 4;
+            int bits = (int)parseLongQuery(header, "bits=");
+            if (bits < 2 || bits > 32) bits = 4;
 
             String op = getQueryValue(header, "op=");
-            int v1 = getQueryValue(header, "v1=").toInt();
-            int v2 = getQueryValue(header, "v2=").toInt();
+            long v1 = parseLongQuery(header, "v1=");
+            long v2 = parseLongQuery(header, "v2=");
 
             if (header.indexOf("GET /?") >= 0) {
               if (op == "som" || op == "sub" || op == "mul" || op == "fat") {
