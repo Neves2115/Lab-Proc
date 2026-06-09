@@ -1,5 +1,5 @@
 /*********
-  Controle Combinado: LED e Servomotor - Versão Estabilizada
+  Controle Combinado: LED e Servomotor - Versão Purificada (Sem Serial)
 *********/
 
 #include <WiFi.h>
@@ -10,36 +10,30 @@ const char* password = "123456789";
 WiFiServer server(80);
 String header;
 
-// Pinos
+// Pinos de Saída
 const int ledPin   = 7; 
 const int servoPin = 6; 
 
-// Resoluções 
+// Resoluções de Hardware
 const int ledResolution   = 8;  // 0 a 255
 const int servoResolution = 10; // 0 a 1023
 
-// Variáveis globais
+// Variáveis globais de estado
 int dutyVal = 128;    
 int servoAngle = 90;  
 
 void setup() {
-  Serial.begin(115200);
+  // Inicialização direta do hardware PWM (Executado apenas uma vez)
+  ledcAttach(ledPin, 1000, ledResolution);   // LED fixo em 1 kHz
+  ledcAttach(servoPin, 50, servoResolution); // Servo fixo em 50 Hz
 
-  // O SEGREDO: ledcAttach é executado APENAS UMA VEZ aqui para travar as frequências
-  ledcAttach(ledPin, 1000, ledResolution); // LED fixo em 1kHz
-  ledcAttach(servoPin, 50, servoResolution); // Servo fixo em 50Hz
-
-  // Aplica os valores padrão iniciais
+  // Aplica as posições/brilhos iniciais padrão
   ledcWrite(ledPin, dutyVal);
   int dutyServo = map(servoAngle, 0, 180, 26, 123);
   ledcWrite(servoPin, dutyServo);
 
-  // Inicializa o Access Point
+  // Inicializa a rede sem fio (O IP padrão do ESP32 em modo AP é sempre 192.168.4.1)
   WiFi.softAP(ssid, password);
-  IPAddress IP = WiFi.softAPIP();
-  Serial.print("Endereço IP do AP: ");
-  Serial.println(IP);
-
   server.begin();
 }
 
@@ -47,7 +41,6 @@ void loop() {
   WiFiClient client = server.available();
 
   if (client) {
-    Serial.println("Novo Cliente.");
     String currentLine = "";
 
     while (client.connected()) {
@@ -57,12 +50,15 @@ void loop() {
 
         if (c == '\n') {
           if (currentLine.length() == 0) {
+            // Envio do cabeçalho de resposta HTTP padrão
             client.println("HTTP/1.1 200 OK");
             client.println("Content-type:text/html");
             client.println("Connection: close");
             client.println();
 
-            // Processing dos parâmetros
+            // ============================================
+            // PROCESSAMENTO DOS PARÂMETROS DA URL
+            // ============================================
             if (header.indexOf("GET /?") >= 0) {
               int p_duty  = header.indexOf("duty=");
               int p_angle = header.indexOf("&angle=");
@@ -72,20 +68,19 @@ void loop() {
                 int novoDuty  = header.substring(p_duty + 5, p_angle).toInt();
                 int novoAngle = header.substring(p_angle + 7, p_end).toInt();
 
+                // Filtros de salvaguarda de limites
                 if(novoDuty >= 0 && novoDuty <= 255) dutyVal = novoDuty;
                 if(novoAngle >= 0 && novoAngle <= 180) servoAngle = novoAngle;
 
-                // AGORA APENAS ESCREVEMOS OS VALORES (Sem destruir os Timers!)
+                // Atualização direta do Duty Cycle nos drivers de silício
                 ledcWrite(ledPin, dutyVal);
                 
                 int dutyServo = map(servoAngle, 0, 180, 26, 123);
                 ledcWrite(servoPin, dutyServo);
-                
-                Serial.printf("Enviado -> LED: %d | Servo: %d° (Duty: %d)\n", dutyVal, servoAngle, dutyServo);
               }
             }
 
-            // INTERFACE WEB
+            // INTERFACE GRÁFICA DO USUÁRIO (HTML / CSS)
             client.println("<!DOCTYPE html><html>");
             client.println("<head><meta name='viewport' content='width=device-width, initial-scale=1'>");
             client.println("<meta charset='UTF-8'><title>Controle de Periféricos</title>");
@@ -98,14 +93,17 @@ void loop() {
             client.println("<body><h1>Painel de Controle PWM</h1>");
             client.println("<div class='box'>");
 
+            // Slider LED
             client.println("<label>💡 Intensidade do LED (0 a 255): </label><br>");
             client.println("<input type='range' id='dutyInput' min='0' max='255' value='" + String(dutyVal) + "'><br><br>");
             
+            // Slider Servo
             client.println("<label>⚙️ Posição do Servo (0° a 180°): </label><br>");
             client.println("<input type='range' id='angleInput' min='0' max='180' value='" + String(servoAngle) + "'><br>");
 
             client.println("<button onclick='enviarDados()'>Atualizar Periféricos</button>");
 
+            // Feedback Visual na própria tela do dispositivo
             client.println("<div class='status-div'>");
             client.println("• LED: " + String(dutyVal) + " [Fixo: 1000 Hz]<br>");
             client.println("• Servo: " + String(servoAngle) + "° [Fixo: 50 Hz]");
@@ -113,6 +111,7 @@ void loop() {
 
             client.println("</div>");
 
+            // Script de captura de dados e submissão
             client.println("<script>");
             client.println("function enviarDados() {");
             client.println("  const duty = document.getElementById('dutyInput').value;");
@@ -134,6 +133,5 @@ void loop() {
 
     header = "";
     client.stop();
-    Serial.println("Cliente desconectado.");
   }
 }
