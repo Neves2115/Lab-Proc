@@ -1,31 +1,40 @@
 /*********
-  Controle de Intensidade e Frequência do LED (PWM) via Webserver - CORRIGIDO
+  Controle Combinado: LED e Servomotor - Versão Estabilizada
 *********/
 
 #include <WiFi.h>
 
-const char* ssid     = "Controle PWM ESP32";
+const char* ssid     = "Controle Web Grupo G";
 const char* password = "123456789";
 
 WiFiServer server(80);
 String header;
 
-// Configurações do PWM (ESP32 Core 3.x)
-const int ledPin = 7;       // Pino do LED Externo
-const int resolution = 8;   // 8 bits (Valores de 0 a 255)
+// Pinos
+const int ledPin   = 7; 
+const int servoPin = 6; 
 
-// Variáveis globais para manter o estado
-int dutyVal = 128;          // Inicial em ~50%
-int freqVal = 1000;         // Inicial em 1kHz
+// Resoluções 
+const int ledResolution   = 8;  // 0 a 255
+const int servoResolution = 10; // 0 a 1023
+
+// Variáveis globais
+int dutyVal = 128;    
+int servoAngle = 90;  
 
 void setup() {
   Serial.begin(115200);
 
-  // Inicializa o PWM direto no pino 7
-  ledcAttach(ledPin, freqVal, resolution);
-  ledcWrite(ledPin, dutyVal);
+  // O SEGREDO: ledcAttach é executado APENAS UMA VEZ aqui para travar as frequências
+  ledcAttach(ledPin, 1000, ledResolution); // LED fixo em 1kHz
+  ledcAttach(servoPin, 50, servoResolution); // Servo fixo em 50Hz
 
-  // Inicializa o WiFi como Access Point
+  // Aplica os valores padrão iniciais
+  ledcWrite(ledPin, dutyVal);
+  int dutyServo = map(servoAngle, 0, 180, 26, 123);
+  ledcWrite(servoPin, dutyServo);
+
+  // Inicializa o Access Point
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
   Serial.print("Endereço IP do AP: ");
@@ -53,68 +62,64 @@ void loop() {
             client.println("Connection: close");
             client.println();
 
-            // ============================================
-            // PROCESSAMENTO DOS PARÂMETROS PWM NO ESP32
-            // ============================================
+            // Processing dos parâmetros
             if (header.indexOf("GET /?") >= 0) {
-              int p_duty = header.indexOf("duty=");
-              int p_freq = header.indexOf("&freq=");
-              int p_end  = header.indexOf(" HTTP");
+              int p_duty  = header.indexOf("duty=");
+              int p_angle = header.indexOf("&angle=");
+              int p_end   = header.indexOf(" HTTP");
 
-              if (p_duty >= 0 && p_freq >= 0 && p_end >= 0) {
-                int novoDuty = header.substring(p_duty + 5, p_freq).toInt();
-                int novaFreq = header.substring(p_freq + 6, p_end).toInt();
+              if (p_duty >= 0 && p_angle >= 0 && p_end >= 0) {
+                int novoDuty  = header.substring(p_duty + 5, p_angle).toInt();
+                int novoAngle = header.substring(p_angle + 7, p_end).toInt();
 
                 if(novoDuty >= 0 && novoDuty <= 255) dutyVal = novoDuty;
-                if(novaFreq >= 100 && novaFreq <= 40000) freqVal = novaFreq;
+                if(novoAngle >= 0 && novoAngle <= 180) servoAngle = novoAngle;
 
-                // Reconfigura o hardware com os novos valores recebidos
-                ledcAttach(ledPin, freqVal, resolution);
+                // AGORA APENAS ESCREVEMOS OS VALORES (Sem destruir os Timers!)
                 ledcWrite(ledPin, dutyVal);
                 
-                Serial.printf("PWM Atualizado -> Freq: %d Hz | Duty: %d\n", freqVal, dutyVal);
+                int dutyServo = map(servoAngle, 0, 180, 26, 123);
+                ledcWrite(servoPin, dutyServo);
+                
+                Serial.printf("Enviado -> LED: %d | Servo: %d° (Duty: %d)\n", dutyVal, servoAngle, dutyServo);
               }
             }
 
-            // INTERFACE WEB (HTML / CSS)
+            // INTERFACE WEB
             client.println("<!DOCTYPE html><html>");
             client.println("<head><meta name='viewport' content='width=device-width, initial-scale=1'>");
-            client.println("<meta charset='UTF-8'><title>Controle PWM ESP32</title>");
+            client.println("<meta charset='UTF-8'><title>Controle de Periféricos</title>");
             client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-            client.println(".box { margin: 30px; padding: 20px; border: 2px solid #4CAF50; display: inline-block; border-radius: 10px; font-size: 20px; min-width: 300px;}");
-            client.println("input[type=number], input[type=range] { width: 80%; font-size: 18px; margin: 10px; padding: 5px; }");
-            client.println("button { color: white; background-color: #4CAF50; border: none; cursor: pointer; font-weight: bold; font-size: 22px; margin: 20px; padding: 10px 20px; border-radius: 5px;}");
-            client.println(".status-div { font-size: 22px; font-weight: bold; margin-top: 20px; color: #333; }</style></head>");
+            client.println(".box { margin: 30px; padding: 20px; border: 2px solid #4CAF50; display: inline-block; border-radius: 10px; font-size: 20px; min-width: 320px;}");
+            client.println("input[type=range] { width: 85%; margin: 15px 0; }");
+            client.println("button { color: white; background-color: #4CAF50; border: none; cursor: pointer; font-weight: bold; font-size: 20px; margin: 20px; padding: 12px 24px; border-radius: 5px;}");
+            client.println(".status-div { font-size: 18px; font-weight: bold; margin-top: 20px; color: #333; text-align: left; padding-left: 20px; }</style></head>");
 
-            client.println("<body><h1>Controle de LED Externo via PWM</h1>");
+            client.println("<body><h1>Painel de Controle PWM</h1>");
             client.println("<div class='box'>");
 
-            // Sliders e Inputs configurados com os valores dinâmicos do ESP32
-            client.println("<label>Intensidade (0 a 255): </label><br>");
+            client.println("<label>💡 Intensidade do LED (0 a 255): </label><br>");
             client.println("<input type='range' id='dutyInput' min='0' max='255' value='" + String(dutyVal) + "'><br><br>");
             
-            client.println("<label>Frequência (Hz): </label><br>");
-            client.println("<input type='number' id='freqInput' min='100' max='40000' value='" + String(freqVal) + "'><br>");
+            client.println("<label>⚙️ Posição do Servo (0° a 180°): </label><br>");
+            client.println("<input type='range' id='angleInput' min='0' max='180' value='" + String(servoAngle) + "'><br>");
 
-            client.println("<button onclick='enviarDados()'>Atualizar LED</button>");
+            client.println("<button onclick='enviarDados()'>Atualizar Periféricos</button>");
 
-            // Div de Status
             client.println("<div class='status-div'>");
-            client.println("Frequência Atual: " + String(freqVal) + " Hz<br>");
-            client.println("Duty Cycle Atual: " + String(dutyVal) + " (" + String((dutyVal * 100) / 255) + "%)");
+            client.println("• LED: " + String(dutyVal) + " [Fixo: 1000 Hz]<br>");
+            client.println("• Servo: " + String(servoAngle) + "° [Fixo: 50 Hz]");
             client.println("</div>");
 
             client.println("</div>");
 
-            // JAVASCRIPT (CORRIGIDO)
             client.println("<script>");
             client.println("function enviarDados() {");
             client.println("  const duty = document.getElementById('dutyInput').value;");
-            client.println("  const freq = document.getElementById('freqInput').value;");
-            client.println("  window.location.href = '/?duty=' + duty + '&freq=' + freq;");
+            client.println("  const angle = document.getElementById('angleInput').value;");
+            client.println("  window.location.href = '/?duty=' + duty + '&angle=' + angle;");
             client.println("}");
-            client.println("</script>"); // <-- Corrigido aqui (estava <script>)
-            client.println("</body></html>");
+            client.println("</script></body></html>");
 
             client.println();
             break;
