@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 # =================================================================
 # Teclado Matricial 4x4
 KEYPAD_ROWS = [16, 20, 21, 26]  # Linhas do Teclado (Saídas)
-KEYPAD_COLS = [10, 13, 6, 5]  # Colunas do Teclado (Entradas com Pull-Down)
+KEYPAD_COLS = [19, 13, 6, 5]  # Colunas do Teclado (Entradas com Pull-Down)
 
 # Sensor Ultrassônico (HC-SR04)
 TRIG_PIN   = 14                 # Pino Trigger
@@ -30,7 +30,7 @@ ECHO_PIN   = 15                 # Pino Echo
 LIMIAR_CM  = 5.0                # Distância (cm) abaixo da qual a tranca é considerada FECHADA
 
 # Periféricos de Saída
-BUZZER_PIN = 22                 # Buzzer de Alerta/Feedback
+BUZZER_PIN = 12                 # Buzzer de Alerta/Feedback
 
 # Matriz do Teclado 4x4
 KEYPAD = [
