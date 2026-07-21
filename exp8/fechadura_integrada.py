@@ -5,21 +5,34 @@ PCS3732 - Laboratório de Processadores (Poli-USP)
 Aula 10: O Desafio da Fechadura Eletrônica
 ===================================================================
 Aplicação Integrada de Fechadura Eletrônica para Raspberry Pi 3
+Utilizando Sensor Ultrassônico (HC-SR04) para verificação de tranca.
 """
 
 import time
+import warnings
 import smbus2
 from RPi import GPIO
+from gpiozero import DistanceSensor
+
+# Silencia avisos do GPIO ao reiniciar scripts
+warnings.filterwarnings("ignore")
 
 # =================================================================
 # 1. MAPEAMENTO DE PINOS (BCM) E PARÂMETROS DO SISTEMA
 # =================================================================
+# Teclado Matricial 4x4
 KEYPAD_ROWS = [18, 23, 24, 25]  # Linhas do Teclado (Saídas)
 KEYPAD_COLS = [12, 16, 20, 21]  # Colunas do Teclado (Entradas com Pull-Down)
-SENSOR_PIN  = 17                # Sensor Magnético / Reed Switch (Pull-Up)
-BUZZER_PIN  = 22                # Buzzer de Alerta/Feedback
 
-# Matriz de Teclas do Teclado 4x4
+# Sensor Ultrassônico (HC-SR04)
+TRIG_PIN   = 14                 # Pino Trigger
+ECHO_PIN   = 15                 # Pino Echo
+LIMIAR_CM  = 5.0                # Distância (cm) abaixo da qual a tranca é considerada FECHADA
+
+# Periféricos de Saída
+BUZZER_PIN = 22                 # Buzzer de Alerta/Feedback
+
+# Matriz do Teclado 4x4
 KEYPAD = [
     ['1', '2', '3', 'A'],
     ['4', '5', '6', 'B'],
@@ -32,10 +45,10 @@ I2C_ADDR = 0x27
 I2C_BUS_NUM = 1
 
 # Parâmetros de Lógica de Negócio
-PASSWORD_CORRECT = "1234"      # Senha mestra cadastrada
-MAX_ATTEMPTS = 3               # Tentativas máximas antes do bloqueio
-COOLDOWN_TIME_SEC = 15         # Tempo de bloqueio temporário (RNF1)
-UNLOCK_TIME_SEC = 5            # Tempo em que a porta permanece liberada
+PASSWORD_CORRECT = "1234"       # Senha mestra cadastrada
+MAX_ATTEMPTS = 3                # Tentativas máximas antes do bloqueio (RNF1)
+COOLDOWN_TIME_SEC = 15          # Tempo de bloqueio temporário em segundos
+UNLOCK_TIME_SEC = 5             # Tempo em que a porta permanece liberada após sucesso
 
 
 # =================================================================
@@ -94,11 +107,16 @@ class LCDI2C:
 
 
 # =================================================================
-# 3. CONTROLADOR INTEGRADO DA FECHADURA
+# 3. CONTROLADOR INTEGRADO DA FECHADURA (COM ULTRASSÔNICO)
 # =================================================================
 class FechaduraEletronica:
     def __init__(self):
         self._setup_gpio()
+        self.sensor_ultrassonico = DistanceSensor(
+            echo=ECHO_PIN,
+            trigger=TRIG_PIN,
+            max_distance=3.0
+        )
         self.lcd = LCDI2C()
         
         self.buffer_senha = ""
@@ -117,16 +135,20 @@ class FechaduraEletronica:
         for c in KEYPAD_COLS:
             GPIO.setup(c, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-        # Configuração do Sensor Magnético de Fim de Curso
-        GPIO.setup(SENSOR_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
         # Configuração do Buzzer
         GPIO.setup(BUZZER_PIN, GPIO.OUT)
         GPIO.output(BUZZER_PIN, GPIO.LOW)
 
+    def _get_distancia_cm(self):
+        """Retorna a distância medida pelo sensor ultrassônico em centímetros."""
+        return self.sensor_ultrassonico.distance * 100.0
+
     def _is_porta_fechada(self):
-        """Retorna True se o contato magnético estiver fechado (GND)."""
-        return GPIO.input(SENSOR_PIN) == GPIO.LOW
+        """
+        Retorna True se a distância medida for menor que o limiar (LIMIAR_CM),
+        indicando que o batente/trava está na posição fechada.
+        """
+        return self._get_distancia_cm() < LIMIAR_CM
 
     def beep(self, duracao, repeticoes=1, intervalo=0.1):
         """Emite sinal sonoro de feedback no buzzer."""
@@ -168,9 +190,10 @@ class FechaduraEletronica:
         """Dispara alarme visual e sonoro para abertura forçada (RF3)."""
         self.lcd.write_line("! ALERTA CRITICO !", line=1)
         self.lcd.write_line("PORTA VIOLADA!", line=2)
-        print("\n[ALERTA SEGUNDO RF3] Abertura forçada da tranca detectada!")
+        dist_atual = self._get_distancia_cm()
+        print(f"\n[ALERTA RF3] Violação física detectada! Distância: {dist_atual:.1f} cm (>= {LIMIAR_CM} cm)")
         
-        # Alarme intermitente até que a porta volte ao estado fechado
+        # Alarme intermitente até que a porta volte à posição fechada (< LIMIAR_CM)
         while not self._is_porta_fechada():
             GPIO.output(BUZZER_PIN, GPIO.HIGH)
             time.sleep(0.15)
@@ -190,10 +213,13 @@ class FechaduraEletronica:
             self.beep(0.1, repeticoes=2)  # Bipe curto duplo (sucesso)
             self.sistema_autorizado = True
             
-            # Aguarda a porta ser aberta e fechada ou expirar o tempo limite
+            # Janela de tempo em que a abertura é permitida sem disparar alarme
             inicio = time.time()
             while time.time() - inicio < UNLOCK_TIME_SEC:
-                time.sleep(0.1)
+                dist = self._get_distancia_cm()
+                status = "FECHADA" if dist < LIMIAR_CM else "ABERTA"
+                self.lcd.write_line(f"Status: {status}", line=2)
+                time.sleep(0.2)
 
             self.sistema_autorizado = False
             self.falhas_consecutivas = 0
@@ -220,17 +246,18 @@ class FechaduraEletronica:
 
     def loop_principal(self):
         """Loop de controle não-bloqueante."""
-        print("=== Sistema de Fechadura Eletrônica Iniciado ===")
+        print("=== Sistema de Fechadura Eletrônica (Sensor Ultrassônico) ===")
+        print(f"Pinos: TRIG=GPIO {TRIG_PIN}, ECHO=GPIO {ECHO_PIN} | Limiar de Fechamento: {LIMIAR_CM} cm")
         print("Pressione 'Ctrl+C' no terminal para interromper.")
         self.reset_display_home()
 
         try:
             while True:
-                # 1. Verificação contínua do Sensor de Violação (RF3)
+                # 1. Verificação contínua de Violação Física via Ultrassom (RF3)
                 if not self._is_porta_fechada() and not self.sistema_autorizado:
                     self.disparar_alarme_violacao()
 
-                # 2. Polling e Tratamento das Teclas Pressionadas (RF1 & RF2)
+                # 2. Polling do Teclado e Atualização da Interface (RF1 & RF2)
                 tecla = self.ler_tecla()
                 if tecla:
                     if tecla == '#':  # Submeter Senha
@@ -246,11 +273,12 @@ class FechaduraEletronica:
                         mascara = "*" * len(self.buffer_senha)
                         self.lcd.write_line(mascara, line=2)
 
-                time.sleep(0.02)  # Ciclo curto para responsividade (<200ms)
+                time.sleep(0.02)  # Ciclo de varredura curto (<200ms)
 
         except KeyboardInterrupt:
             print("\n[INFO] Desconectando e limpando periféricos...")
         finally:
+            self.sensor_ultrassonico.close()
             self.lcd.close()
             GPIO.cleanup()
 
