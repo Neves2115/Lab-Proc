@@ -21,8 +21,8 @@ warnings.filterwarnings("ignore")
 # 1. MAPEAMENTO DE PINOS (BCM) E PARÂMETROS DO SISTEMA
 # =================================================================
 # Teclado Matricial 4x4
-KEYPAD_ROWS = [18, 23, 24, 25]  # Linhas do Teclado (Saídas)
-KEYPAD_COLS = [12, 16, 20, 21]  # Colunas do Teclado (Entradas com Pull-Down)
+KEYPAD_ROWS = [16, 20, 21, 26]  # Linhas do Teclado (Saídas)
+KEYPAD_COLS = [10, 13, 6, 5]  # Colunas do Teclado (Entradas com Pull-Down)
 
 # Sensor Ultrassônico (HC-SR04)
 TRIG_PIN   = 14                 # Pino Trigger
@@ -48,7 +48,7 @@ I2C_BUS_NUM = 1
 PASSWORD_CORRECT = "1234"       # Senha mestra cadastrada
 MAX_ATTEMPTS = 3                # Tentativas máximas antes do bloqueio (RNF1)
 COOLDOWN_TIME_SEC = 15          # Tempo de bloqueio temporário em segundos
-UNLOCK_TIME_SEC = 5             # Tempo em que a porta permanece liberada após sucesso
+UNLOCK_TIME_SEC = 10            # Tempo em que a porta permanece liberada após sucesso
 
 
 # =================================================================
