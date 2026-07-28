@@ -1,20 +1,20 @@
 # Central de comandos por voz para o kit Freenove
 
 ## Estrutura de código
-- `src/central_voz_freenove/hardware/led.py`
-- `src/central_voz_freenove/hardware/servo.py`
-- `src/central_voz_freenove/hardware/lcd.py`
-- `src/central_voz_freenove/hardware/distance.py`
-- `src/central_voz_freenove/hardware/matrix.py`
-- `src/central_voz_freenove/recognition/commands.py`
-- `src/central_voz_freenove/recognition/vosk_engine.py`
-- `src/central_voz_freenove/audio/recorder.py`
-- `src/central_voz_freenove/app/controller.py`
-- `src/central_voz_freenove/main.py`
+- `src/hardware/led.py`
+- `src/hardware/servo.py`
+- `src/hardware/lcd.py`
+- `src/hardware/distance.py`
+- `src/hardware/matrix.py`
+- `src/recognition/commands.py`
+- `src/recognition/vosk_engine.py`
+- `src/audio/recorder.py`
+- `src/app/controller.py`
+- `src/main.py`
 
 ## Como testar em modo simulado
 ```bash
-python -m central_voz_freenove.main
+python -m  .main
 ```
 
 ## Ordem recomendada de integração
