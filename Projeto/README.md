@@ -14,7 +14,7 @@
 
 ## Como testar em modo simulado
 ```bash
-python -m  .main
+python -m  src.main
 ```
 
 ## Ordem recomendada de integração
