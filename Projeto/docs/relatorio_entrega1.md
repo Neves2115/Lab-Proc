@@ -1,6 +1,4 @@
-% Central de comandos por voz para o kit Freenove
-% Entrega 1 - Semana inicial
-% 2026
+# Central de comandos por voz - Entrega 1 - Semana inicial 2026
 
 # 1. Introdução
 
